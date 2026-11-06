@@ -1,608 +1,486 @@
-const db = window.supabase.createClient(
-  "https://gqdfyvgjemxjbxwyfttr.supabase.co",
-  "sb_publishable_UF7m6aR7gRZRIG2X-jHX_g_gijBbU1R"
-);
+// ================= Supabase =================
+const SUPABASE_URL = "https://gqdfyvgjemxjbxwyfttr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_UF7m6aR7gRZRIG2X-jHX_g_gijBbU1R";
 
-const $ = id => document.getElementById(id);
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const authOverlay = $("auth-overlay");
-const authEmail = $("auth-email");
-const authPassword = $("auth-password");
-const authError = $("auth-error");
-const loginBtn = $("login-btn");
-const signupBtn = $("signup-btn");
-const adminToggleBtn = $("admin-toggle-btn");
-
-const workerForm = $("worker-form");
-const workerName = $("w-name");
-const workerRole = $("w-role");
-const workerPhone = $("w-phone");
-const workerWage = $("w-wage");
-const workerList = $("worker-list");
-const workerSearch = $("worker-search");
-const workerSubmitBtn = $("worker-submit-btn");
-const workerCancelBtn = $("worker-cancel-btn");
-
-const logForm = $("log-form");
-const logDate = $("log-date");
-const logWorker = $("log-worker");
-const logTask = $("log-task");
-const logList = $("log-list");
-const monthFilter = $("month-filter");
-
-const summaryBody = $("summary-body");
-const summaryMonth = $("summary-month");
-const toast = $("toast");
-
-const selfCheckinBox = $("self-checkin-box");
-const selfCheckinBtn = $("self-checkin-btn");
-
+// ================= ตัวแปรหลัก =================
 let currentUser = null;
-let userRole = "worker";
+let currentRole = "worker";
 let workers = [];
 let logs = [];
 let attendance = [];
-let myWorker = null;
-let toastTimer;
-let authVersion = 0;
-let loadVersion = 0;
 
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add("show");
+// ================= helper =================
+const $ = (id) => document.getElementById(id);
 
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    toast.classList.remove("show");
-  }, 4000);
+function toast(message) {
+  const el = $("toast");
+  el.textContent = message;
+  el.classList.add("show");
+  clearTimeout(el.timer);
+  el.timer = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
-function showAuthError(message) {
-  authError.textContent = message;
-  authError.classList.remove("hidden");
-}
-
-function clearAuthError() {
-  authError.textContent = "";
-  authError.classList.add("hidden");
-}
-
-function escapeHTML(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function money(value) {
-  return (Number(value) || 0).toLocaleString("th-TH", {
-    maximumFractionDigits: 2
-  });
+function thaiDate(iso) {
+  if (!iso) return "-";
+  const [y, m, d] = iso.split("-").map(Number);
+  const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+  return `${d} ${months[m - 1]} ${y + 543}`;
 }
 
 function todayISO() {
   const now = new Date();
-
-  return [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0")
-  ].join("-");
+  const p = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
 
-function formatDate(value) {
-  if (!value) return "-";
-
-  const date = new Date(value + "T00:00:00");
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleDateString("th-TH", {
-    day: "numeric",
-    month: "short",
-    year: "numeric"
-  });
+function formatBaht(n) {
+  return n.toLocaleString("th-TH");
 }
 
-function isAdmin() {
-  return Boolean(currentUser) && userRole === "admin";
+function escapeHTML(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[c]));
 }
 
-function errorText(error) {
-  const message = error?.message || String(error);
-
-  if (message.includes("Invalid login credentials")) {
-    return "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
-  }
-
-  if (message.includes("Email not confirmed")) {
-    return "อีเมลนี้ยังไม่ได้ยืนยัน";
-  }
-
-  if (message.includes("User already registered")) {
-    return "อีเมลนี้สมัครแล้ว ให้กดเข้าสู่ระบบ";
-  }
-
-  return message;
+function showAuthError(msg) {
+  $("auth-error").textContent = msg;
 }
 
-function updatePermissionUI() {
-  authOverlay.classList.toggle("hidden", Boolean(currentUser));
-
-  document.querySelectorAll(".admin-only").forEach(element => {
-    element.classList.toggle("hidden", !isAdmin());
-  });
-
-  adminToggleBtn.textContent = currentUser
-    ? "🔓 ออกจากระบบ"
-    : "🔐 เข้าสู่ระบบ";
+function clearAuthError() {
+  $("auth-error").textContent = "";
 }
 
-function renderWorkerOptions() {
-  const selected = logWorker.value;
-
-  logWorker.innerHTML =
-    '<option value="">-- เลือกคนงาน --</option>';
-
-  workers.forEach(worker => {
-    const option = document.createElement("option");
-    option.value = worker.id;
-    option.textContent = worker.name;
-    logWorker.appendChild(option);
-  });
-
-  if (workers.some(worker =>
-    String(worker.id) === selected
-  )) {
-    logWorker.value = selected;
-  }
-}
-
-function renderWorkers() {
-  const keyword = (workerSearch?.value || "")
-    .trim()
-    .toLowerCase();
-
-  const filtered = workers.filter(worker =>
-    [worker.name, worker.role, worker.phone].some(value =>
-      String(value ?? "").toLowerCase().includes(keyword)
-    )
-  );
-
-  workerList.innerHTML = "";
-
-  if (!filtered.length) {
-    workerList.innerHTML =
-      '<div class="empty">ไม่พบคนงาน</div>';
-    return;
-  }
-
-  filtered.forEach(worker => {
-    const card = document.createElement("div");
-    card.className = "item-card";
-
-    card.innerHTML = `
-      <div class="info">
-        <div class="name">${escapeHTML(worker.name)}</div>
-        <div class="meta">
-          ${escapeHTML(worker.phone || "")}
-        </div>
-        <span class="badge badge-role">
-          ${escapeHTML(worker.role || "ไม่ระบุหน้าที่")}
-        </span>
-        <span class="badge badge-days">
-          ${money(worker.wage)} บาท/วัน
-        </span>
-      </div>
-      <div class="actions admin-only"></div>
-    `;
-
-    const actions = card.querySelector(".actions");
-
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.className = "btn btn-ghost";
-    editButton.textContent = "แก้ไข";
-
-    editButton.addEventListener("click", async () => {
-      if (!isAdmin()) return;
-
-      const name = prompt("ชื่อคนงาน", worker.name || "");
-      if (name === null) return;
-
-      const role = prompt("หน้าที่", worker.role || "");
-      if (role === null) return;
-
-      const phone = prompt("เบอร์โทร", worker.phone || "");
-      if (phone === null) return;
-
-      const wageText = prompt(
-        "ค่าแรงต่อวัน",
-        String(worker.wage ?? 0)
-      );
-      if (wageText === null) return;
-
-      const wage = Number(wageText);
-
-      if (!name.trim()) {
-        showToast("กรุณากรอกชื่อคนงาน");
-        return;
-      }
-
-      if (!wageText.trim() || !Number.isFinite(wage) || wage < 0) {
-        showToast("ค่าแรงต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป");
-        return;
-      }
-
-      const { data, error } = await db.from("workers")
-        .update({
-          name: name.trim(),
-          role: role.trim(),
-          phone: phone.trim(),
-          wage
-        })
-        .eq("id", worker.id)
-        .eq("owner_id", currentUser.id)
-        .select("id");
-
-      if (error) {
-        showToast("แก้ไขไม่สำเร็จ: " + error.message);
-        return;
-      }
-
-      if (!data?.length) {
-        showToast("ไม่ได้แก้ไขข้อมูล กรุณาตรวจสอบสิทธิ์");
-        return;
-      }
-
-      await loadData();
-      showToast("แก้ไขคนงานแล้ว");
-    });
-
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "btn btn-danger-ghost";
-    deleteButton.textContent = "ลบ";
-
-    deleteButton.addEventListener("click", async () => {
-      if (!isAdmin()) return;
-
-      if (!confirm("ต้องการลบคนงานนี้หรือไม่?")) return;
-
-      const { data, error } = await db.from("workers")
-        .delete()
-        .eq("id", worker.id)
-        .eq("owner_id", currentUser.id)
-        .select("id");
-
-      if (error) {
-        showToast("ลบไม่สำเร็จ: " + error.message);
-        return;
-      }
-
-      if (!data?.length) {
-        showToast("ไม่ได้ลบข้อมูล กรุณาตรวจสอบสิทธิ์");
-        return;
-      }
-
-      await loadData();
-      showToast("ลบคนงานแล้ว");
-    });
-
-    actions.append(editButton, deleteButton);
-    workerList.appendChild(card);
-  });
-
-  updatePermissionUI();
-}
-
-function renderLogs() {
-  const month = monthFilter?.value || "";
-
-  const filtered = logs.filter(log =>
-    !month || String(log.work_date).startsWith(month)
-  );
-
-  logList.innerHTML = "";
-
-  if (!filtered.length) {
-    logList.innerHTML =
-      '<div class="empty">ไม่พบบันทึกงาน</div>';
-    return;
-  }
-
-  filtered.forEach(log => {
-    const worker = workers.find(item =>
-      String(item.id) === String(log.worker_id)
-    );
-
-    const card = document.createElement("div");
-    card.className = "item-card";
-
-    card.innerHTML = `
-      <div class="info">
-        <div class="name">
-          ${escapeHTML(worker?.name || "ไม่พบคนงาน")}
-        </div>
-        <div class="meta">
-          ${escapeHTML(formatDate(log.work_date))}
-          ${log.task ? " • " + escapeHTML(log.task) : ""}
-        </div>
-      </div>
-      <div class="actions admin-only"></div>
-    `;
-
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "btn btn-danger-ghost";
-    deleteButton.textContent = "ลบ";
-
-    deleteButton.addEventListener("click", async () => {
-      if (!isAdmin()) return;
-
-      if (!confirm("ต้องการลบบันทึกงานนี้หรือไม่?")) return;
-
-      const { data, error } = await db.from("work_logs")
-        .delete()
-        .eq("id", log.id)
-        .eq("owner_id", currentUser.id)
-        .select("id");
-
-      if (error) {
-        showToast("ลบไม่สำเร็จ: " + error.message);
-        return;
-      }
-
-      if (!data?.length) {
-        showToast("ไม่ได้ลบข้อมูล กรุณาตรวจสอบสิทธิ์");
-        return;
-      }
-
-      await loadData();
-      showToast("ลบบันทึกงานแล้ว");
-    });
-
-    card.querySelector(".actions").appendChild(deleteButton);
-    logList.appendChild(card);
-  });
-
-  updatePermissionUI();
-}
-
-function renderSummary() {
-  const month = summaryMonth?.value || "";
-
-  const filtered = logs.filter(log =>
-    !month || String(log.work_date).startsWith(month)
-  );
-
-  summaryBody.innerHTML = "";
-
-  if (!workers.length) {
-    summaryBody.innerHTML = `
-      <tr>
-        <td colspan="5" class="empty">
-          ยังไม่มีข้อมูลคนงาน
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  let total = 0;
-
-  workers.forEach(worker => {
-    const dates = new Set(
-      filtered
-        .filter(log =>
-          String(log.worker_id) === String(worker.id)
-        )
-        .map(log => log.work_date)
-    );
-
-    const amount = dates.size * (Number(worker.wage) || 0);
-    total += amount;
-
-    const row = document.createElement("tr");
-
-    row.innerHTML = `
-      <td>${escapeHTML(worker.name)}</td>
-      <td>${escapeHTML(worker.role || "-")}</td>
-      <td class="num">${dates.size}</td>
-      <td class="num">${money(worker.wage)}</td>
-      <td class="num">${money(amount)}</td>
-    `;
-
-    summaryBody.appendChild(row);
-  });
-
-  const totalRow = document.createElement("tr");
-  totalRow.className = "total-row";
-
-  totalRow.innerHTML = `
-    <td colspan="4">รวมทั้งหมด</td>
-    <td class="num">${money(total)} บาท</td>
-  `;
-
-  summaryBody.appendChild(totalRow);
-}
-
-function findMyWorker() {
-  if (!currentUser) {
-    myWorker = null;
-    return;
-  }
-
-  myWorker = workers.find(worker =>
-    String(worker.user_id || "") === String(currentUser.id)
-  ) || null;
-}
-
-function updateCheckinUI() {
-  findMyWorker();
-
-  if (!myWorker) {
-    selfCheckinBox.classList.add("hidden");
-    return;
-  }
-
-  selfCheckinBox.classList.remove("hidden");
-
-  const alreadyCheckedIn = attendance.some(item =>
-    String(item.worker_id) === String(myWorker.id) &&
-    item.work_date === todayISO()
-  );
-
-  if (alreadyCheckedIn) {
-    selfCheckinBtn.textContent = "เช็คอินแล้ววันนี้";
-    selfCheckinBtn.disabled = true;
-  } else {
-    selfCheckinBtn.textContent = "เช็คอินวันนี้";
-    selfCheckinBtn.disabled = false;
-  }
-}
-
-function renderAll() {
-  renderWorkerOptions();
-  renderWorkers();
-  renderLogs();
-  renderSummary();
-  updatePermissionUI();
-  updateCheckinUI();
-}
-
-async function loadData() {
+// ================= โหลดข้อมูล =================
+async function loadWorkers() {
   if (!currentUser) return;
 
-  const userId = currentUser.id;
-  const version = ++loadVersion;
+  const { data, error } = await db
+    .from("workers")
+    .select("*")
+    .eq("owner_id", currentUser.id);
 
-  const [workerResult, logResult] = await Promise.all([
-    db.from("workers")
-      .select("*")
-      .eq("owner_id", userId)
-      .order("created_at", { ascending: false }),
-
-    db.from("work_logs")
-      .select("*")
-      .eq("owner_id", userId)
-      .order("work_date", { ascending: false })
-  ]);
-
-  if (version !== loadVersion || currentUser?.id !== userId) {
+  if (error) {
+    console.error("loadWorkers error", error);
     return;
   }
 
-  if (workerResult.error) throw workerResult.error;
-  if (logResult.error) throw logResult.error;
+  workers = data || [];
+}
 
-  workers = workerResult.data || [];
-  logs = logResult.data || [];
+async function loadLogs() {
+  if (!currentUser) return;
 
-  await loadAttendance();
+  const { data, error } = await db
+    .from("work_logs")
+    .select("*")
+    .eq("owner_id", currentUser.id);
 
-  renderAll();
+  if (error) {
+    console.error("loadLogs error", error);
+    return;
+  }
+
+  logs = data || [];
 }
 
 async function loadAttendance() {
-  if (!currentUser) {
-    attendance = [];
-    updateCheckinUI();
-    return;
-  }
+  if (!currentUser) return;
 
-  const { data, error } = await db.from("attendance")
+  const { data, error } = await db
+    .from("attendance")
     .select("*")
-    .order("work_date", { ascending: false });
+    .eq("owner_id", currentUser.id);
 
   if (error) {
-    console.error(error);
-    attendance = [];
-    updateCheckinUI();
+    console.error("loadAttendance error", error);
     return;
   }
 
   attendance = data || [];
-  updateCheckinUI();
 }
 
-async function applyUser(user) {
-  const version = ++authVersion;
-  ++loadVersion;
-
-  currentUser = user || null;
-  userRole = "worker";
-  workers = [];
-  logs = [];
-  attendance = [];
-
+async function loadAll() {
+  await loadWorkers();
+  await loadLogs();
+  await loadAttendance();
   renderAll();
+}
 
-  if (!user) return;
+// ================= render =================
+function renderWorkers() {
+  const list = $("worker-list");
 
-  try {
-    const { data, error } = await db.from("profiles")
-      .select("user_id, role")
-      .eq("user_id", user.id)
-      .maybeSingle();
+  if (!workers.length) {
+    list.innerHTML = `<div class="empty">ยังไม่มีคนงาน</div>`;
+    return;
+  }
 
-    if (version !== authVersion) return;
-    if (error) throw error;
+  list.innerHTML = workers
+    .map((w) => {
+      const days = new Set(
+        logs.filter((l) => l.worker_id === w.id).map((l) => l.work_date)
+      ).size;
 
-    userRole = data?.role || "worker";
-    updatePermissionUI();
+      return `
+        <div class="item-card">
+          <div class="info">
+            <div class="name">${escapeHTML(w.name)}</div>
+            <div class="meta">${w.phone ? escapeHTML(w.phone) : ""} ${w.wage ? "• " + formatBaht(w.wage) + " บาท/วัน" : ""}</div>
+            ${w.role ? `<span class="badge badge-role">${escapeHTML(w.role)}</span>` : ""}
+            <span class="badge badge-days">${days} วัน</span>
+          </div>
+          <div class="actions">
+            <button class="btn-danger-ghost" data-edit="${w.id}">แก้ไข</button>
+            <button class="btn-danger-ghost" data-del="${w.id}">ลบ</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
 
-    await loadData();
+function renderLogForm() {
+  const sel = $("l-worker");
+  const prev = sel.value;
 
-    if (!data && version === authVersion) {
-      showToast(
-        "ไม่พบโปรไฟล์บัญชี กรุณาตรวจสอบตาราง profiles"
-      );
-    }
-  } catch (error) {
-    if (version !== authVersion) return;
+  sel.innerHTML =
+    `<option value="" disabled selected>เลือกคนงาน</option>` +
+    workers
+      .map((w) => `<option value="${w.id}">${escapeHTML(w.name)}</option>`)
+      .join("");
 
-    console.error(error);
-    showToast("โหลดข้อมูลไม่สำเร็จ: " + errorText(error));
+  if (prev && workers.some((w) => String(w.id) === prev)) {
+    sel.value = prev;
   }
 }
 
-loginBtn.addEventListener("click", async () => {
+function renderLogs() {
+  const list = $("log-list");
+
+  if (!logs.length) {
+    list.innerHTML = `<div class="empty">ยังไม่มีบันทึกงาน</div>`;
+    return;
+  }
+
+  const sorted = [...logs].sort((a, b) => b.work_date.localeCompare(a.work_date));
+
+  list.innerHTML = sorted
+    .map((l) => {
+      const w = workers.find((x) => x.id === l.worker_id);
+      return `
+        <div class="item-card">
+          <div class="info">
+            <div class="name">${escapeHTML(w ? w.name : "ไม่ทราบชื่อ")}</div>
+            <div class="meta">${thaiDate(l.work_date)}</div>
+            <div class="meta">${escapeHTML(l.task)}</div>
+          </div>
+          <div class="actions">
+            <button class="btn-danger-ghost" data-dellog="${l.id}">ลบ</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderSummary() {
+  const body = $("summary-body");
+
+  if (!workers.length) {
+    body.innerHTML = `<tr><td colspan="6"><div class="empty">ยังไม่มีข้อมูล</div></td></tr>`;
+    return;
+  }
+
+  let totalAll = 0;
+
+  const rows = workers.map((w) => {
+    const dates = new Set(
+      logs.filter((l) => l.worker_id === w.id).map((l) => l.work_date)
+    );
+
+    const days = dates.size;
+    const total = w.wage ? days * w.wage : 0;
+
+    if (total) totalAll += total;
+
+    const last = dates.size
+      ? thaiDate([...dates].sort().pop())
+      : "-";
+
+    return `
+      <tr>
+        <td>${escapeHTML(w.name)}</td>
+        <td>${escapeHTML(w.role || "-")}</td>
+        <td class="num">${days}</td>
+        <td class="num">${w.wage ? formatBaht(w.wage) : "-"}</td>
+        <td class="num">${total ? formatBaht(total) : "-"}</td>
+        <td>${last}</td>
+      </tr>
+    `;
+  });
+
+  rows.push(`
+    <tr class="total-row">
+      <td colspan="4">รวมทั้งหมด</td>
+      <td class="num">${formatBaht(totalAll)}</td>
+      <td></td>
+    </tr>
+  `);
+
+  body.innerHTML = rows.join("");
+}
+
+function renderAll() {
+  renderWorkers();
+  renderLogForm();
+  renderLogs();
+  renderSummary();
+}
+
+// ================= คนงาน =================
+$("worker-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  if (!currentUser) return;
+
+  const id = $("worker-id").value;
+  const name = $("w-name").value.trim();
+
+  if (!name) return;
+
+  const payload = {
+    owner_id: currentUser.id,
+    name,
+    role: $("w-role").value.trim(),
+    phone: $("w-phone").value.trim(),
+    wage: $("w-wage").value ? Number($("w-wage").value) : null
+  };
+
+  if (id) {
+    const { error } = await db
+      .from("workers")
+      .update(payload)
+      .eq("id", id);
+
+    if (error) {
+      console.error(error);
+      toast("บันทึกไม่สำเร็จ");
+      return;
+    }
+
+    toast("แก้ไขคนงานแล้ว");
+  } else {
+    const { error } = await db
+      .from("workers")
+      .insert([payload]);
+
+    if (error) {
+      console.error(error);
+      toast("บันทึกไม่สำเร็จ");
+      return;
+    }
+
+    toast("เพิ่มคนงานแล้ว");
+  }
+
+  resetWorkerForm();
+  await loadAll();
+});
+
+function resetWorkerForm() {
+  $("worker-form").reset();
+  $("worker-id").value = "";
+  $("worker-submit-btn").textContent = "บันทึกคนงาน";
+  $("worker-cancel-btn").classList.add("hidden");
+}
+
+$("worker-list").addEventListener("click", async (e) => {
+  const editBtn = e.target.closest("[data-edit]");
+  const delBtn = e.target.closest("[data-del]");
+
+  if (editBtn) {
+    const w = workers.find((x) => String(x.id) === editBtn.dataset.edit);
+    if (!w) return;
+
+    $("worker-id").value = w.id;
+    $("w-name").value = w.name;
+    $("w-role").value = w.role || "";
+    $("w-phone").value = w.phone || "";
+    $("w-wage").value = w.wage || "";
+
+    $("worker-submit-btn").textContent = "อัปเดตคนงาน";
+    $("worker-cancel-btn").classList.remove("hidden");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  if (delBtn) {
+    const id = delBtn.dataset.del;
+    if (!confirm("ยืนยันลบคนงานนี้?")) return;
+
+    const { error } = await db
+      .from("workers")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(error);
+      toast("ลบไม่สำเร็จ");
+      return;
+    }
+
+    toast("ลบคนงานแล้ว");
+    await loadAll();
+  }
+});
+
+$("worker-cancel-btn").addEventListener("click", resetWorkerForm);
+
+// ================= บันทึกงาน =================
+$("log-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  if (!currentUser) return;
+
+  const workerId = Number($("l-worker").value);
+  const workDate = $("l-date").value;
+  const task = $("l-task").value.trim();
+
+  if (!workerId || !workDate || !task) return;
+
+  const { error } = await db
+    .from("work_logs")
+    .insert([
+      {
+        owner_id: currentUser.id,
+        worker_id: workerId,
+        work_date: workDate,
+        task
+      }
+    ]);
+
+  if (error) {
+    console.error(error);
+    toast("บันทึกไม่สำเร็จ");
+    return;
+  }
+
+  toast("บันทึกงานแล้ว");
+  $("log-form").reset();
+  $("l-date").value = todayISO();
+
+  await loadAll();
+});
+
+$("log-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-dellog]");
+  if (!btn) return;
+
+  if (!confirm("ยืนยันลบบันทึกนี้?")) return;
+
+  const { error } = await db
+    .from("work_logs")
+    .delete()
+    .eq("id", btn.dataset.dellog);
+
+  if (error) {
+    console.error(error);
+    toast("ลบไม่สำเร็จ");
+    return;
+  }
+
+  toast("ลบบันทึกแล้ว");
+  await loadAll();
+});
+
+// ================= แท็บ =================
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+
+    ["workers", "logs", "summary"].forEach((t) => {
+      $(`tab-${t}`).classList.toggle("hidden", t !== btn.dataset.tab);
+    });
+
+    if (btn.dataset.tab === "summary") renderSummary();
+  });
+});
+
+// ================= เช็คอิน =================
+$("self-checkin-btn").addEventListener("click", async () => {
+  if (!currentUser) return;
+
+  const today = todayISO();
+
+  const already = attendance.some(
+    (a) => a.user_id === currentUser.id && a.work_date === today
+  );
+
+  if (already) {
+    toast("คุณเช็คอินวันนี้แล้ว");
+    return;
+  }
+
+  const { error } = await db
+    .from("attendance")
+    .insert([
+      {
+        owner_id: currentUser.id,
+        user_id: currentUser.id,
+        work_date: today
+      }
+    ]);
+
+  if (error) {
+    console.error(error);
+    toast("เช็คอินไม่สำเร็จ");
+    return;
+  }
+
+  toast("เช็คอินสำเร็จ");
+  await loadAttendance();
+  updateCheckinUI();
+});
+
+function updateCheckinUI() {
+  const box = $("self-checkin-box");
+  const btn = $("self-checkin-btn");
+
+  if (!currentUser) {
+    box.classList.add("hidden");
+    return;
+  }
+
+  const today = todayISO();
+  const already = attendance.some(
+    (a) => a.user_id === currentUser.id && a.work_date === today
+  );
+
+  if (already) {
+    btn.textContent = "เช็คอินแล้ว";
+    btn.disabled = true;
+  } else {
+    btn.textContent = "เช็คอินวันนี้";
+    btn.disabled = false;
+  }
+}
+
+// ================= สมัคร / เข้าสู่ระบบ =================
+$("signup-btn").addEventListener("click", async () => {
   clearAuthError();
 
-  const email = authEmail.value.trim();
-  const password = authPassword.value;
+  const email = $("auth-email").value.trim();
+  const password = $("auth-password").value;
 
   if (!email || !password) {
     showAuthError("กรุณากรอกอีเมลและรหัสผ่าน");
-    return;
-  }
-
-  const { error } = await db.auth.signInWithPassword({
-    email,
-    password
-  });
-
-  if (error) {
-    showAuthError(errorText(error));
-    return;
-  }
-
-  authPassword.value = "";
-  showToast("เข้าสู่ระบบแล้ว");
-});
-
-signupBtn.addEventListener("click", async () => {
-  clearAuthError();
-
-  const email = authEmail.value.trim();
-  const password = authPassword.value;
-
-  if (!email || !authEmail.checkValidity() || password.length < 6) {
-    showAuthError(
-      "กรอกอีเมลให้ถูกต้อง และรหัสผ่านอย่างน้อย 6 ตัวอักษร"
-    );
     return;
   }
 
@@ -612,172 +490,108 @@ signupBtn.addEventListener("click", async () => {
   });
 
   if (error) {
-    showAuthError(errorText(error));
+    showAuthError(error.message);
     return;
   }
 
-  authPassword.value = "";
+  if (data?.user) {
+    await applyUser(data.user);
+    toast("สมัครและเข้าสู่ระบบแล้ว");
+  }
+});
 
-  if (data.session) {
-    showToast("สมัครและเข้าใช้งานสำเร็จแล้ว");
+$("login-btn").addEventListener("click", async () => {
+  clearAuthError();
+
+  const email = $("auth-email").value.trim();
+  const password = $("auth-password").value;
+
+  if (!email || !password) {
+    showAuthError("กรุณากรอกอีเมลและรหัสผ่าน");
+    return;
+  }
+
+  const { data, error } = await db.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    showAuthError(error.message);
+    return;
+  }
+
+  $("auth-password").value = "";
+  toast("เข้าสู่ระบบแล้ว");
+
+  if (data?.user) {
+    await applyUser(data.user);
   } else {
-    showAuthError(
-      "สมัครสำเร็จ แต่อีเมลนี้อาจต้องยืนยันก่อนเข้าใช้งาน"
-    );
+    const { data: sessionData } = await db.auth.getSession();
+    if (sessionData?.session?.user) {
+      await applyUser(sessionData.session.user);
+    }
   }
 });
 
-adminToggleBtn.addEventListener("click", async () => {
+// ================= สถานะผู้ใช้ =================
+async function applyUser(user) {
+  currentUser = user;
+
+  const { data, error } = await db
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .single();
+
+  if (error) {
+    console.error("profiles error", error);
+    currentRole = "worker";
+  } else {
+    currentRole = data?.role || "worker";
+  }
+
+  updatePermissionUI();
+  await loadAll();
+}
+
+function updatePermissionUI() {
+  const overlay = $("auth-overlay");
+  const checkinBox = $("self-checkin-box");
+
   if (!currentUser) {
-    authOverlay.classList.remove("hidden");
-    authEmail.focus();
+    overlay.classList.remove("hidden");
+    checkinBox.classList.add("hidden");
     return;
   }
 
-  const { error } = await db.auth.signOut();
+  overlay.classList.add("hidden");
 
-  if (error) {
-    showToast("ออกจากระบบไม่สำเร็จ: " + error.message);
-    return;
+  if (currentRole === "worker") {
+    checkinBox.classList.remove("hidden");
+  } else {
+    checkinBox.classList.add("hidden");
   }
 
-  await applyUser(null);
-  showToast("ออกจากระบบแล้ว");
+  updateCheckinUI();
+}
+
+// ================= เริ่มระบบ =================
+db.auth.onAuthStateChange(async (_event, session) => {
+  if (session?.user) {
+    await applyUser(session.user);
+  } else {
+    currentUser = null;
+    updatePermissionUI();
+  }
 });
 
-document.querySelectorAll(".tab-btn").forEach(button => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(item => {
-      item.classList.toggle("active", item === button);
-    });
+(async () => {
+  const { data } = await db.auth.getSession();
 
-    ["workers", "logs", "summary"].forEach(name => {
-      $("tab-" + name).classList.toggle(
-        "hidden",
-        button.dataset.tab !== name
-      );
-    });
-  });
-});
-
-workerForm.addEventListener("submit", async event => {
-  event.preventDefault();
-  if (!isAdmin()) return;
-
-  const name = workerName.value.trim();
-  const wage = Number(workerWage.value);
-
-  if (!name) {
-    showToast("กรุณากรอกชื่อคนงาน");
-    return;
+  if (data?.session?.user) {
+    await applyUser(data.session.user);
+  } else {
+    updatePermissionUI();
   }
-
-  if (!Number.isFinite(wage) || wage < 0) {
-    showToast("ค่าแรงต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป");
-    return;
-  }
-
-  const { error } = await db.from("workers").insert({
-    owner_id: currentUser.id,
-    name,
-    role: workerRole.value.trim(),
-    phone: workerPhone.value.trim(),
-    wage
-  });
-
-  if (error) {
-    showToast("บันทึกไม่สำเร็จ: " + error.message);
-    return;
-  }
-
-  workerForm.reset();
-  await loadData();
-  showToast("เพิ่มคนงานแล้ว");
-});
-
-logForm.addEventListener("submit", async event => {
-  event.preventDefault();
-  if (!isAdmin()) return;
-
-  const workerId = logWorker.value;
-  const workDate = logDate.value;
-
-  if (!workerId || !workDate) {
-    showToast("กรุณาเลือกคนงานและวันที่");
-    return;
-  }
-
-  if (!workers.some(worker =>
-    String(worker.id) === workerId
-  )) {
-    showToast("ไม่พบคนงานที่เลือก");
-    return;
-  }
-
-  if (logs.some(log =>
-    String(log.worker_id) === workerId &&
-    log.work_date === workDate
-  )) {
-    showToast("คนงานนี้มีบันทึกวันที่เลือกแล้ว");
-    return;
-  }
-
-  const { error } = await db.from("work_logs").insert({
-    owner_id: currentUser.id,
-    worker_id: workerId,
-    work_date: workDate,
-    task: logTask.value.trim()
-  });
-
-  if (error) {
-    showToast("บันทึกไม่สำเร็จ: " + error.message);
-    return;
-  }
-
-  logTask.value = "";
-  await loadData();
-  showToast("บันทึกวันทำงานแล้ว");
-});
-
-selfCheckinBtn.addEventListener("click", async () => {
-  if (!currentUser || !myWorker) return;
-
-  const workDate = todayISO();
-
-  const alreadyCheckedIn = attendance.some(item =>
-    String(item.worker_id) === String(myWorker.id) &&
-    item.work_date === workDate
-  );
-
-  if (alreadyCheckedIn) {
-    showToast("คุณเช็คอินวันนี้ไปแล้ว");
-    return;
-  }
-
-  const { error } = await db.from("attendance").insert({
-    owner_id: myWorker.owner_id,
-    worker_id: myWorker.id,
-    work_date: workDate
-  });
-
-  if (error) {
-    showToast("เช็คอินไม่สำเร็จ: " + error.message);
-    return;
-  }
-
-  await loadAttendance();
-  showToast("เช็คอินวันนี้แล้ว");
-});
-
-workerSearch?.addEventListener("input", renderWorkers);
-monthFilter?.addEventListener("change", renderLogs);
-summaryMonth?.addEventListener("change", renderSummary);
-
-db.auth.onAuthStateChange((_event, session) => {
-  setTimeout(() => {
-    void applyUser(session?.user || null);
-  }, 0);
-});
-
-logDate.value = todayISO();
-renderAll();
+})();
