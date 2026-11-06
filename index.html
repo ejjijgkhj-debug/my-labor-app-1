@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบบันทึกค่าแรงคนงาน</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app">
+
+    <header class="app-header">
+      <h1>🧰 ระบบบันทึกค่าแรงคนงาน</h1>
+      <button type="button" id="admin-toggle-btn" class="btn btn-ghost">
+        🔐 เข้าสู่ระบบ
+      </button>
+    </header>
+
+    <div id="toast" class="toast"></div>
+
+    <div id="auth-overlay" class="auth-overlay hidden">
+      <div class="auth-card">
+        <h2>เข้าสู่ระบบ</h2>
+
+        <label for="auth-email">อีเมล</label>
+        <input type="email" id="auth-email" placeholder="you@example.com">
+
+        <label for="auth-password">รหัสผ่าน</label>
+        <input type="password" id="auth-password" placeholder="••••••••">
+
+        <div id="auth-error" class="error hidden"></div>
+
+        <div class="auth-actions">
+          <button type="button" id="login-btn" class="btn btn-primary">
+            เข้าสู่ระบบ
+          </button>
+
+          <button type="button" id="signup-btn" class="btn btn-ghost">
+            สมัครไอดีใหม่
+          </button>
+
+          <button type="button" id="forgot-btn" class="btn btn-ghost">
+            ลืมรหัสผ่าน?
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="tabs">
+      <button type="button" class="tab-btn active" data-tab="workers">
+        👷 คนงาน
+      </button>
+
+      <button type="button" class="tab-btn" data-tab="logs">
+        📅 บันทึกงาน
+      </button>
+
+      <button type="button" class="tab-btn" data-tab="summary">
+        💰 สรุปค่าแรง
+      </button>
+    </nav>
+
+    <section id="tab-workers" class="tab-panel">
+
+      <div class="card">
+        <h2>เพิ่มคนงาน</h2>
+
+        <form id="worker-form" class="admin-only">
+          <input type="text" id="w-name" placeholder="ชื่อคนงาน" required>
+          <input type="text" id="w-role" placeholder="หน้าที่ เช่น ช่าง / ผู้ช่วย">
+          <input type="tel" id="w-phone" placeholder="เบอร์โทร">
+          <input type="number" id="w-wage" placeholder="ค่าแรงต่อวัน" min="0" required>
+
+          <button type="submit" class="btn btn-primary">
+            เพิ่มคนงาน
+          </button>
+
+          <button type="button" id="edit-worker-btn" class="btn btn-ghost">
+            แก้ไขคนงาน
+          </button>
+        </form>
+
+        <input
+          type="text"
+          id="worker-search"
+          placeholder="ค้นหาคนงาน"
+        >
+      </div>
+
+      <div id="worker-list" class="list"></div>
+
+    </section>
+
+    <section id="tab-logs" class="tab-panel hidden">
+
+      <div class="card">
+        <h2>บันทึกวันทำงาน</h2>
+
+        <form id="log-form" class="admin-only">
+          <input type="date" id="log-date" required>
+          <select id="log-worker" required>
+            <option value="">-- เลือกคนงาน --</option>
+          </select>
+          <input type="text" id="log-task" placeholder="งานที่ทำ เช่น ติดตั้ง / ซ่อม">
+
+          <button type="submit" class="btn btn-primary">
+            บันทึกวันทำงาน
+          </button>
+        </form>
+
+        <input
+          type="month"
+          id="month-filter"
+        >
+      </div>
+
+      <div id="log-list" class="list"></div>
+
+    </section>
+
+    <section id="tab-summary" class="tab-panel hidden">
+
+      <div class="card">
+        <h2>สรุปค่าแรง</h2>
+
+        <input
+          type="month"
+          id="summary-month"
+        >
+      </div>
+
+      <div class="card">
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>ชื่อ</th>
+              <th>หน้าที่</th>
+              <th>วันทำงาน</th>
+              <th>ค่าแรง/วัน</th>
+              <th>รวม</th>
+            </tr>
+          </thead>
+          <tbody id="summary-body"></tbody>
+        </table>
+      </div>
+
+    </section>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="script.js"></script>
+
+</body>
+</html>
