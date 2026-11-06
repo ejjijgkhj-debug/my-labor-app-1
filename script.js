@@ -6,7 +6,7 @@ const db = window.supabase.createClient(
 const $ = id => document.getElementById(id);
 
 const authOverlay = $("auth-overlay");
-const authPhone = $("auth-phone");
+const authEmail = $("auth-email");
 const authPassword = $("auth-password");
 const authError = $("auth-error");
 const loginBtn = $("login-btn");
@@ -106,15 +106,15 @@ function errorText(error) {
   const message = error?.message || String(error);
 
   if (message.includes("Invalid login credentials")) {
-    return "เบอร์โทรหรือรหัสผ่านไม่ถูกต้อง";
+    return "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
   }
 
-  if (message.includes("Phone not confirmed")) {
-    return "เบอร์โทรนี้ยังไม่ได้ยืนยัน";
+  if (message.includes("Email not confirmed")) {
+    return "อีเมลนี้ยังไม่ได้ยืนยัน";
   }
 
   if (message.includes("User already registered")) {
-    return "เบอร์โทรนี้สมัครแล้ว ให้กดเข้าสู่ระบบ";
+    return "อีเมลนี้สมัครแล้ว ให้กดเข้าสู่ระบบ";
   }
 
   return message;
@@ -503,16 +503,16 @@ async function applyUser(user) {
 loginBtn.addEventListener("click", async () => {
   clearAuthError();
 
-  const phone = authPhone.value.trim();
+  const email = authEmail.value.trim();
   const password = authPassword.value;
 
-  if (!phone || !password) {
-    showAuthError("กรุณากรอกเบอร์โทรและรหัสผ่าน");
+  if (!email || !password) {
+    showAuthError("กรุณากรอกอีเมลและรหัสผ่าน");
     return;
   }
 
   const { error } = await db.auth.signInWithPassword({
-    phone,
+    email,
     password
   });
 
@@ -528,18 +528,18 @@ loginBtn.addEventListener("click", async () => {
 signupBtn.addEventListener("click", async () => {
   clearAuthError();
 
-  const phone = authPhone.value.trim();
+  const email = authEmail.value.trim();
   const password = authPassword.value;
 
-  if (!phone || password.length < 6) {
+  if (!email || !authEmail.checkValidity() || password.length < 6) {
     showAuthError(
-      "กรอกเบอร์โทรศัพท์ให้ถูกต้อง และรหัสผ่านอย่างน้อย 6 ตัวอักษร"
+      "กรอกอีเมลให้ถูกต้อง และรหัสผ่านอย่างน้อย 6 ตัวอักษร"
     );
     return;
   }
 
   const { data, error } = await db.auth.signUp({
-    phone,
+    email,
     password
   });
 
@@ -551,10 +551,10 @@ signupBtn.addEventListener("click", async () => {
   authPassword.value = "";
 
   if (data.session) {
-    showToast("สมัครสำเร็จแล้ว");
+    showToast("สมัครและเข้าใช้งานสำเร็จแล้ว");
   } else {
     showAuthError(
-      "ระบบส่งรหัสยืนยันไปที่เบอร์โทรแล้ว กรุณากรอกรหัสยืนยัน"
+      "สมัครสำเร็จ แต่อีเมลนี้อาจต้องยืนยันก่อนเข้าใช้งาน"
     );
   }
 });
@@ -562,7 +562,7 @@ signupBtn.addEventListener("click", async () => {
 adminToggleBtn.addEventListener("click", async () => {
   if (!currentUser) {
     authOverlay.classList.remove("hidden");
-    authPhone.focus();
+    authEmail.focus();
     return;
   }
 
