@@ -20,6 +20,8 @@ const workerPhone = $("w-phone");
 const workerWage = $("w-wage");
 const workerList = $("worker-list");
 const workerSearch = $("worker-search");
+const workerSubmitBtn = $("worker-submit-btn");
+const workerCancelBtn = $("worker-cancel-btn");
 
 const logForm = $("log-form");
 const logDate = $("log-date");
@@ -32,10 +34,15 @@ const summaryBody = $("summary-body");
 const summaryMonth = $("summary-month");
 const toast = $("toast");
 
+const selfCheckinBox = $("self-checkin-box");
+const selfCheckinBtn = $("self-checkin-btn");
+
 let currentUser = null;
 let userRole = "worker";
 let workers = [];
 let logs = [];
+let attendance = [];
+let myWorker = null;
 let toastTimer;
 let authVersion = 0;
 let loadVersion = 0;
@@ -75,13 +82,13 @@ function money(value) {
   });
 }
 
-function today() {
-  const date = new Date();
+function todayISO() {
+  const now = new Date();
 
   return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0")
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
   ].join("-");
 }
 
@@ -421,12 +428,48 @@ function renderSummary() {
   summaryBody.appendChild(totalRow);
 }
 
+function findMyWorker() {
+  if (!currentUser) {
+    myWorker = null;
+    return;
+  }
+
+  myWorker = workers.find(worker =>
+    String(worker.user_id || "") === String(currentUser.id)
+  ) || null;
+}
+
+function updateCheckinUI() {
+  findMyWorker();
+
+  if (!myWorker) {
+    selfCheckinBox.classList.add("hidden");
+    return;
+  }
+
+  selfCheckinBox.classList.remove("hidden");
+
+  const alreadyCheckedIn = attendance.some(item =>
+    String(item.worker_id) === String(myWorker.id) &&
+    item.work_date === todayISO()
+  );
+
+  if (alreadyCheckedIn) {
+    selfCheckinBtn.textContent = "เช็คอินแล้ววันนี้";
+    selfCheckinBtn.disabled = true;
+  } else {
+    selfCheckinBtn.textContent = "เช็คอินวันนี้";
+    selfCheckinBtn.disabled = false;
+  }
+}
+
 function renderAll() {
   renderWorkerOptions();
   renderWorkers();
   renderLogs();
   renderSummary();
   updatePermissionUI();
+  updateCheckinUI();
 }
 
 async function loadData() {
@@ -457,7 +500,31 @@ async function loadData() {
   workers = workerResult.data || [];
   logs = logResult.data || [];
 
+  await loadAttendance();
+
   renderAll();
+}
+
+async function loadAttendance() {
+  if (!currentUser) {
+    attendance = [];
+    updateCheckinUI();
+    return;
+  }
+
+  const { data, error } = await db.from("attendance")
+    .select("*")
+    .order("work_date", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    attendance = [];
+    updateCheckinUI();
+    return;
+  }
+
+  attendance = data || [];
+  updateCheckinUI();
 }
 
 async function applyUser(user) {
@@ -468,6 +535,7 @@ async function applyUser(user) {
   userRole = "worker";
   workers = [];
   logs = [];
+  attendance = [];
 
   renderAll();
 
@@ -671,6 +739,36 @@ logForm.addEventListener("submit", async event => {
   showToast("บันทึกวันทำงานแล้ว");
 });
 
+selfCheckinBtn.addEventListener("click", async () => {
+  if (!currentUser || !myWorker) return;
+
+  const workDate = todayISO();
+
+  const alreadyCheckedIn = attendance.some(item =>
+    String(item.worker_id) === String(myWorker.id) &&
+    item.work_date === workDate
+  );
+
+  if (alreadyCheckedIn) {
+    showToast("คุณเช็คอินวันนี้ไปแล้ว");
+    return;
+  }
+
+  const { error } = await db.from("attendance").insert({
+    owner_id: myWorker.owner_id,
+    worker_id: myWorker.id,
+    work_date: workDate
+  });
+
+  if (error) {
+    showToast("เช็คอินไม่สำเร็จ: " + error.message);
+    return;
+  }
+
+  await loadAttendance();
+  showToast("เช็คอินวันนี้แล้ว");
+});
+
 workerSearch?.addEventListener("input", renderWorkers);
 monthFilter?.addEventListener("change", renderLogs);
 summaryMonth?.addEventListener("change", renderSummary);
@@ -681,5 +779,5 @@ db.auth.onAuthStateChange((_event, session) => {
   }, 0);
 });
 
-logDate.value = today();
+logDate.value = todayISO();
 renderAll();
