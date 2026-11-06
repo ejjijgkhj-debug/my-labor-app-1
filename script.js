@@ -2,17 +2,15 @@ const db = window.supabase.createClient(
   "https://gqdfyvgjemxjbxwyfttr.supabase.co",
   "sb_publishable_UF7m6aR7gRZRIG2X-jHX_g_gijBbU1R"
 );
-// วางโค้ดนี้ต่อท้ายบล็อก const db = ... ); เดิม
 
 const $ = id => document.getElementById(id);
 
 const authOverlay = $("auth-overlay");
-const authEmail = $("auth-email");
+const authPhone = $("auth-phone");
 const authPassword = $("auth-password");
 const authError = $("auth-error");
 const loginBtn = $("login-btn");
 const signupBtn = $("signup-btn");
-const forgotBtn = $("forgot-btn");
 const adminToggleBtn = $("admin-toggle-btn");
 
 const workerForm = $("worker-form");
@@ -41,16 +39,6 @@ let logs = [];
 let toastTimer;
 let authVersion = 0;
 let loadVersion = 0;
-
-// ซ่อนปุ่มรีเซ็ตรหัสผ่านชั่วคราว
-// เพราะเว็บยังเปิดผ่าน file:///
-if (forgotBtn) {
-  forgotBtn.hidden = true;
-  forgotBtn.style.display = "none";
-}
-
-// ซ่อนปุ่มแก้ไขแบบกรอก ID ถ้ามี
-$("edit-worker-btn")?.remove();
 
 function showToast(message) {
   toast.textContent = message;
@@ -118,15 +106,15 @@ function errorText(error) {
   const message = error?.message || String(error);
 
   if (message.includes("Invalid login credentials")) {
-    return "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+    return "เบอร์โทรหรือรหัสผ่านไม่ถูกต้อง";
   }
 
-  if (message.includes("Email not confirmed")) {
-    return "บัญชีนี้ยังไม่ได้ยืนยันอีเมล";
+  if (message.includes("Phone not confirmed")) {
+    return "เบอร์โทรนี้ยังไม่ได้ยืนยัน";
   }
 
   if (message.includes("User already registered")) {
-    return "อีเมลนี้สมัครแล้ว ให้กดเข้าสู่ระบบ";
+    return "เบอร์โทรนี้สมัครแล้ว ให้กดเข้าสู่ระบบ";
   }
 
   return message;
@@ -213,32 +201,19 @@ function renderWorkers() {
     editButton.addEventListener("click", async () => {
       if (!isAdmin()) return;
 
-      const name = prompt(
-        "ชื่อคนงาน",
-        worker.name || ""
-      );
-
+      const name = prompt("ชื่อคนงาน", worker.name || "");
       if (name === null) return;
 
-      const role = prompt(
-        "หน้าที่",
-        worker.role || ""
-      );
-
+      const role = prompt("หน้าที่", worker.role || "");
       if (role === null) return;
 
-      const phone = prompt(
-        "เบอร์โทร",
-        worker.phone || ""
-      );
-
+      const phone = prompt("เบอร์โทร", worker.phone || "");
       if (phone === null) return;
 
       const wageText = prompt(
         "ค่าแรงต่อวัน",
         String(worker.wage ?? 0)
       );
-
       if (wageText === null) return;
 
       const wage = Number(wageText);
@@ -507,8 +482,6 @@ async function applyUser(user) {
     if (version !== authVersion) return;
     if (error) throw error;
 
-    // ใช้สิทธิ์จากฐานข้อมูล
-    // ไม่สร้างโปรไฟล์ใหม่จากหน้าเว็บ
     userRole = data?.role || "worker";
     updatePermissionUI();
 
@@ -530,16 +503,16 @@ async function applyUser(user) {
 loginBtn.addEventListener("click", async () => {
   clearAuthError();
 
-  const email = authEmail.value.trim();
+  const phone = authPhone.value.trim();
   const password = authPassword.value;
 
-  if (!email || !password) {
-    showAuthError("กรุณากรอกอีเมลและรหัสผ่าน");
+  if (!phone || !password) {
+    showAuthError("กรุณากรอกเบอร์โทรและรหัสผ่าน");
     return;
   }
 
   const { error } = await db.auth.signInWithPassword({
-    email,
+    phone,
     password
   });
 
@@ -555,18 +528,18 @@ loginBtn.addEventListener("click", async () => {
 signupBtn.addEventListener("click", async () => {
   clearAuthError();
 
-  const email = authEmail.value.trim();
+  const phone = authPhone.value.trim();
   const password = authPassword.value;
 
-  if (!email || !authEmail.checkValidity() || password.length < 6) {
+  if (!phone || password.length < 6) {
     showAuthError(
-      "กรอกอีเมลให้ถูกต้อง และรหัสผ่านอย่างน้อย 6 ตัวอักษร"
+      "กรอกเบอร์โทรศัพท์ให้ถูกต้อง และรหัสผ่านอย่างน้อย 6 ตัวอักษร"
     );
     return;
   }
 
   const { data, error } = await db.auth.signUp({
-    email,
+    phone,
     password
   });
 
@@ -578,10 +551,10 @@ signupBtn.addEventListener("click", async () => {
   authPassword.value = "";
 
   if (data.session) {
-    showToast("สมัครแล้ว สิทธิ์ใช้งานขึ้นอยู่กับโปรไฟล์ในฐานข้อมูล");
+    showToast("สมัครสำเร็จแล้ว");
   } else {
     showAuthError(
-      "ตรวจอีเมลเพื่อยืนยันบัญชี แล้วกลับมาเข้าสู่ระบบ"
+      "ระบบส่งรหัสยืนยันไปที่เบอร์โทรแล้ว กรุณากรอกรหัสยืนยัน"
     );
   }
 });
@@ -589,7 +562,7 @@ signupBtn.addEventListener("click", async () => {
 adminToggleBtn.addEventListener("click", async () => {
   if (!currentUser) {
     authOverlay.classList.remove("hidden");
-    authEmail.focus();
+    authPhone.focus();
     return;
   }
 
