@@ -543,8 +543,8 @@ async function applyUser(user) {
 
   try {
     const { data, error } = await db.from("profiles")
-      .select("id, role")
-      .eq("id", user.id)
+      .select("user_id, role")
+      .eq("user_id", user.id)
       .maybeSingle();
 
     if (version !== authVersion) return;
