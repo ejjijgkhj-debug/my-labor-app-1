@@ -1,6 +1,7 @@
 // ================= Supabase =================
+const db = window.supabase.createClient(
 const SUPABASE_URL = "https://gqdfyvgjemxjbxwyfttr.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_UF7m6aR7gRZRIG2X-jHX_g_gijBbU1R";
+const SUPABASE_ANON_KEY = ""sb_publishable_UF7m6aR7gRZRIG2X-jHX_g_gijBbU1R";
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
